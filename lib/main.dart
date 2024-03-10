@@ -1,3 +1,5 @@
+// ignore_for_file: library_private_types_in_public_api
+
 import 'package:flutter/material.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:http/http.dart' as http;
@@ -49,7 +51,8 @@ class DBHelper {
             id INTEGER PRIMARY KEY,
             title TEXT,
             overview TEXT,
-            posterPath TEXT
+            posterPath TEXT,
+            isFavorite INTEGER
           )
         ''');
         await db.execute('''
@@ -145,6 +148,9 @@ class _PopularMoviesPageState extends State<PopularMoviesPage> {
                       return MovieListItem(
                         movie: filteredMovies[index],
                         dbHelper: dbHelper, // Pasa el dbHelper aquí
+                        onFavoriteChanged: () {
+                          _filterMovies(searchController.text);
+                        },
                       );
                     },
                   ),
@@ -177,7 +183,8 @@ class _PopularMoviesPageState extends State<PopularMoviesPage> {
     setState(() {
       filteredMovies = movies
           .where((movie) =>
-              movie.title.toLowerCase().contains(query.toLowerCase()))
+              movie.title.toLowerCase().contains(query.toLowerCase()) &&
+              movie.isFavorite) // Filtra las películas que sean favoritas
           .toList();
     });
   }
@@ -190,12 +197,14 @@ class Movie {
   final String overview;
   @JsonKey(name: 'poster_path')
   final String posterPath;
+  bool isFavorite;
 
   Movie({
     required this.id,
     required this.title,
     required this.overview,
     required this.posterPath,
+    this.isFavorite = false,
   });
 
   factory Movie.fromJson(Map<String, dynamic> json) => _$MovieFromJson(json);
@@ -204,9 +213,14 @@ class Movie {
 class MovieListItem extends StatefulWidget {
   final Movie movie;
   final DBHelper dbHelper;
+  final VoidCallback? onFavoriteChanged;
 
-  const MovieListItem({Key? key, required this.movie, required this.dbHelper})
-      : super(key: key);
+  const MovieListItem({
+    Key? key,
+    required this.movie,
+    required this.dbHelper,
+    this.onFavoriteChanged,
+  }) : super(key: key);
 
   @override
   _MovieListItemState createState() => _MovieListItemState();
@@ -233,10 +247,9 @@ class _MovieListItemState extends State<MovieListItem> {
               : widget.movie.overview),
           if (_expanded) ...[
             const SizedBox(height: 8),
-            Text('Reseñas:', style: Theme.of(context).textTheme.subtitle1),
+            Text('Reseñas:', style: Theme.of(context).textTheme.titleMedium),
             FutureBuilder<List<Map<String, dynamic>>>(
-              future: widget.dbHelper.getReviewsForMovie(
-                  widget.movie.id), // Utiliza el dbHelper proporcionado
+              future: widget.dbHelper.getReviewsForMovie(widget.movie.id),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const CircularProgressIndicator();
@@ -298,18 +311,31 @@ class _MovieListItemState extends State<MovieListItem> {
           ],
         ],
       ),
-      trailing: _buildExpandButton(),
+      trailing: _buildFavoriteButton(),
     );
   }
 
-  Widget _buildExpandButton() {
-    return TextButton(
+  Widget _buildFavoriteButton() {
+    return IconButton(
+      icon: Icon(
+        widget.movie.isFavorite ? Icons.favorite : Icons.favorite_border,
+        color: widget.movie.isFavorite ? Colors.red : null,
+      ),
       onPressed: () {
         setState(() {
-          _expanded = !_expanded;
+          widget.movie.isFavorite = !widget.movie.isFavorite;
+          widget.dbHelper.insertMovie({
+            'id': widget.movie.id,
+            'title': widget.movie.title,
+            'overview': widget.movie.overview,
+            'posterPath': widget.movie.posterPath,
+            'isFavorite': widget.movie.isFavorite ? 1 : 0,
+          });
+          if (widget.onFavoriteChanged != null) {
+            widget.onFavoriteChanged!();
+          }
         });
       },
-      child: Text(_expanded ? 'Ver menos' : 'Agregar reseña'),
     );
   }
 
