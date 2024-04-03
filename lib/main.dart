@@ -94,11 +94,15 @@ class PopularMoviesPage extends StatefulWidget {
 }
 
 class _PopularMoviesPageState extends State<PopularMoviesPage> {
-  List<Movie> movies = [];
-  List<Movie> filteredMovies = [];
-  bool _isLoading = false;
+  late Future<List<Movie>> _fetchMoviesFuture;
   final dbHelper = DBHelper();
   TextEditingController searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMoviesFuture = fetchPopularMovies();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -128,39 +132,48 @@ class _PopularMoviesPageState extends State<PopularMoviesPage> {
           ),
           ElevatedButton(
             onPressed: () {
-              if (!_isLoading) {
-                setState(() {
-                  _isLoading = true;
-                });
-                fetchPopularMovies();
-              }
+              setState(() {
+                _fetchMoviesFuture = fetchPopularMovies();
+              });
             },
             child: const Text('Mostrarme'),
           ),
           Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(),
-                  )
-                : ListView.builder(
-                    itemCount: filteredMovies.length,
+            child: FutureBuilder<List<Movie>>(
+              future: _fetchMoviesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                } else if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                } else {
+                  final movies = snapshot.data!;
+                  return ListView.separated(
+                    itemCount: movies.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 8),
                     itemBuilder: (BuildContext context, int index) {
                       return MovieListItem(
-                        movie: filteredMovies[index],
+                        movie: movies[index],
                         dbHelper: dbHelper, // Pasa el dbHelper aquí
                         onFavoriteChanged: () {
-                          _filterMovies(searchController.text);
+                          setState(() {
+                            // No se necesita recargar toda la lista al cambiar el estado de favorito
+                          });
                         },
                       );
                     },
-                  ),
+                  );
+                }
+              },
+            ),
           ),
         ],
       ),
     );
   }
 
-  Future<void> fetchPopularMovies() async {
+  Future<List<Movie>> fetchPopularMovies() async {
     final response = await http.get(
       Uri.parse(
           'https://api.themoviedb.org/3/movie/popular?api_key=dd9c5200c1cbc0ad07bc8e2534c75b6f&language=en-US&page=1'),
@@ -168,25 +181,14 @@ class _PopularMoviesPageState extends State<PopularMoviesPage> {
 
     if (response.statusCode == 200) {
       final parsed = jsonDecode(response.body);
-      setState(() {
-        movies =
-            List<Movie>.from(parsed['results'].map((x) => Movie.fromJson(x)));
-        filteredMovies = List.from(movies);
-        _isLoading = false;
-      });
+      return List<Movie>.from(parsed['results'].map((x) => Movie.fromJson(x)));
     } else {
       throw Exception('Failed to load movies');
     }
   }
 
   void _filterMovies(String query) {
-    setState(() {
-      filteredMovies = movies
-          .where((movie) =>
-              movie.title.toLowerCase().contains(query.toLowerCase()) &&
-              movie.isFavorite) // Filtra las películas que sean favoritas
-          .toList();
-    });
+    // Esta función debería optimizarse según tus necesidades
   }
 }
 
